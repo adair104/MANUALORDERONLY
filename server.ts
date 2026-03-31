@@ -119,6 +119,11 @@ function formatOrder(userId: string, info: any, orders: any[]): string {
   return `${header}\n\n${items}`;
 }
 
+async function respond(interaction: any, data: any) {
+  if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+  return interaction.editReply(data);
+}
+
 // ── Select menu shorthand ───────────────────────────────────────────────────
 
 function makeSelect(customId: string, placeholder: string, options: { label: string; value: string }[], extra?: { min?: number; max?: number }) {
@@ -205,7 +210,7 @@ async function showProteinSelect(interaction: any, state: any) {
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId('back_to_entree').setLabel('Back').setStyle(ButtonStyle.Danger)
   );
-  await interaction.update({ content: `Selected: **${state.currentOrder.type}**. Now choose your protein:`, components: [row, backRow] });
+  await respond(interaction, { content: `Selected: **${state.currentOrder.type}**. Now choose your protein:`, components: [row, backRow] });
 }
 
 async function showProteinPortion(interaction: any, state: any) {
@@ -214,7 +219,7 @@ async function showProteinPortion(interaction: any, state: any) {
     new ButtonBuilder().setCustomId('protein_skip').setLabel('✅ Regular Portion').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('back_to_protein_select').setLabel('◀️ Back').setStyle(ButtonStyle.Danger),
   );
-  await interaction.update({ content: `🥩 Protein: **${state.currentOrder.proteins.join(', ')}**. Double protein?`, components: [row] });
+  await respond(interaction, { content: `🥩 Protein: **${state.currentOrder.proteins.join(', ')}**. Double protein?`, components: [row] });
 }
 
 async function showRiceSelect(interaction: any, state: any) {
@@ -226,13 +231,13 @@ async function showRiceSelect(interaction: any, state: any) {
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId('back_to_protein_portion').setLabel('◀️ Back').setStyle(ButtonStyle.Danger)
   );
-  await interaction.update({ content: '🍚 Choose your rice:', components: [row, backRow] });
+  await respond(interaction, { content: '🍚 Choose your rice:', components: [row, backRow] });
 }
 
 async function showRicePortion(interaction: any, state: any) {
   const row = createPortionRow('rice_portion');
   row.addComponents(new ButtonBuilder().setCustomId('back_to_rice_select').setLabel('Back').setStyle(ButtonStyle.Danger));
-  await interaction.update({ content: `🍚 Rice: **${state.currentOrder.rice.type}**. Choose portion:`, components: [row] });
+  await respond(interaction, { content: `🍚 Rice: **${state.currentOrder.rice.type}**. Choose portion:`, components: [row] });
 }
 
 async function showBeansSelect(interaction: any, state: any) {
@@ -245,13 +250,13 @@ async function showBeansSelect(interaction: any, state: any) {
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(backId).setLabel('Back').setStyle(ButtonStyle.Danger)
   );
-  await interaction.update({ content: '🫘 Choose your beans:', components: [row, backRow] });
+  await respond(interaction, { content: '🫘 Choose your beans:', components: [row, backRow] });
 }
 
 async function showBeansPortion(interaction: any, state: any) {
   const row = createPortionRow('beans_portion');
   row.addComponents(new ButtonBuilder().setCustomId('back_to_beans_select').setLabel('Back').setStyle(ButtonStyle.Danger));
-  await interaction.update({ content: `🫘 Beans: **${state.currentOrder.beans.type}**. Choose portion:`, components: [row] });
+  await respond(interaction, { content: `🫘 Beans: **${state.currentOrder.beans.type}**. Choose portion:`, components: [row] });
 }
 
 async function showToppingsSelect(interaction: any, state: any) {
@@ -271,7 +276,7 @@ async function showToppingsSelect(interaction: any, state: any) {
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(backId).setLabel('Back').setStyle(ButtonStyle.Danger)
   );
-  await interaction.update({ content: '🥗 Choose your toppings:', components: [row, backRow] });
+  await respond(interaction, { content: '🥗 Choose your toppings:', components: [row, backRow] });
 }
 
 async function showToppingPortion(interaction: any, state: any, index: number) {
@@ -279,7 +284,7 @@ async function showToppingPortion(interaction: any, state: any, index: number) {
   const row = createPortionRow(`topping_portion_${index}`);
   const backId = index === 0 ? 'back_to_toppings_select' : `back_to_topping_${index - 1}`;
   row.addComponents(new ButtonBuilder().setCustomId(backId).setLabel('Back').setStyle(ButtonStyle.Danger));
-  await interaction.update({ content: `🧂 Topping: **${topping}**. Choose portion:`, components: [row] });
+  await respond(interaction, { content: `🧂 Topping: **${topping}**. Choose portion:`, components: [row] });
 }
 
 async function showPremiumSelect(interaction: any, state: any) {
@@ -299,7 +304,7 @@ async function showPremiumSelect(interaction: any, state: any) {
   const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(backId).setLabel('Back').setStyle(ButtonStyle.Danger)
   );
-  await interaction.update({ content: '⭐ Add a premium topping (optional):', components: [row, backRow] });
+  await respond(interaction, { content: '⭐ Add a premium topping (optional):', components: [row, backRow] });
 }
 
 async function showCart(interaction: any, state: any) {
@@ -567,11 +572,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } else if (interaction.customId === 'back_to_review') {
         await showCart(interaction, state);
       } else if (interaction.customId === 'edit_order_start') {
-        if (state.orders.length === 0) return await interaction.reply({ content: '❌ No items to edit.', flags: MessageFlags.Ephemeral });
+        if (state.orders.length === 0) return await respond(interaction, { content: '❌ No items to edit.', components: [], embeds: [] });
         const row = makeSelect('edit_select', 'Select item to edit',
           state.orders.map((o: any, i: number) => ({ label: `${i + 1}. ${o.type}${o.entreeName ? ` — ${o.entreeName}` : ''}`, value: String(i) }))
         );
-        await interaction.update({ content: 'Select an item to edit:', components: [row], embeds: [] });
+        await respond(interaction, { content: 'Select an item to edit:', components: [row], embeds: [] });
       } else if (interaction.customId.startsWith('edit_select_')) {
         const idx = parseInt(interaction.customId.replace('edit_select_', ''), 10);
         state.editingIndex = idx;
@@ -579,11 +584,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         state.currentOrder = { type: '', proteins: [], rice: { type: 'None' }, beans: { type: 'None' }, toppings: [], selectedToppings: [], premiums: [] };
         await showEntreeSelect(interaction, state);
       } else if (interaction.customId === 'remove_item_start') {
-        if (state.orders.length === 0) return await interaction.reply({ content: '❌ No items to remove.', flags: MessageFlags.Ephemeral });
+        if (state.orders.length === 0) return await respond(interaction, { content: '❌ No items to remove.', components: [], embeds: [] });
         const row = makeSelect('remove_select', 'Select item to remove',
           state.orders.map((o: any, i: number) => ({ label: `${i + 1}. ${o.type}${o.entreeName ? ` — ${o.entreeName}` : ''}`, value: String(i) }))
         );
-        await interaction.update({ content: 'Select an item to remove:', components: [row], embeds: [] });
+        await respond(interaction, { content: 'Select an item to remove:', components: [row], embeds: [] });
       } else if (interaction.customId === 'back_to_entree') {
         await showEntreeSelect(interaction, state);
       } else if (interaction.customId === 'back_to_protein_select') {
