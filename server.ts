@@ -23,6 +23,7 @@ dotenv.config();
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const orderState = new Map<string, any>();
+const handledInteractions = new Set<string>();
 
 // Clean up sessions idle for more than 1 hour
 setInterval(() => {
@@ -347,6 +348,9 @@ async function showCart(interaction: any, state: any) {
 // ── Main interaction handler ────────────────────────────────────────────────
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (handledInteractions.has(interaction.id)) return;
+  handledInteractions.add(interaction.id);
+  setTimeout(() => handledInteractions.delete(interaction.id), 60_000);
   try {
     // /manualorder slash command → show modal
     if (interaction.isChatInputCommand() && interaction.commandName === 'manualorder') {
