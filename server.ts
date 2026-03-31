@@ -48,16 +48,18 @@ function createEmbed() {
     .setAuthor({ name: 'Manual Order Bot' });
 }
 
-function getPSTUtcOffsetMinutes(): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Los_Angeles',
-    timeZoneName: 'shortOffset',
-  }).formatToParts(new Date());
-  const offsetStr = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT-8';
-  const match = offsetStr.match(/GMT([+-])(\d+)(?::(\d+))?/);
-  if (!match) return -480;
-  const sign = match[1] === '+' ? 1 : -1;
-  return sign * (parseInt(match[2], 10) * 60 + (match[3] ? parseInt(match[3], 10) : 0));
+function localTimeToLabel(localMinutes: number, tz: string): string {
+  const hour = Math.floor(localMinutes / 60);
+  const minute = localMinutes % 60;
+  const period = hour < 12 ? 'AM' : 'PM';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const mm = minute.toString().padStart(2, '0');
+  const tzAbbr = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short', hour: 'numeric' })
+    .formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value ?? '';
+  const normalized = tzAbbr
+    .replace(/\bEDT\b/, 'EST').replace(/\bCDT\b/, 'CST').replace(/\bMDT\b/, 'MST')
+    .replace(/\bPDT\b/, 'PST').replace(/\bAKDT\b/, 'AKST').replace(/\bHDT\b/, 'HST');
+  return `${h12}:${mm} ${period} ${normalized}`;
 }
 
 const STATE_TIMEZONE: Record<string, string> = {
@@ -87,46 +89,10 @@ function resolveTimezone(stateAbbr: string): string {
   return STATE_TIMEZONE[stateAbbr.toUpperCase()] || 'America/Los_Angeles';
 }
 
-function pstTimeToLocalLabel(hourPST: number, minutePST: number, tz: string): string {
-  const pstOffset = getPSTUtcOffsetMinutes();
-  const pstParts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Los_Angeles',
-    year: 'numeric', month: 'numeric', day: 'numeric',
-  }).formatToParts(new Date());
-  const year  = Number(pstParts.find(p => p.type === 'year')?.value);
-  const month = Number(pstParts.find(p => p.type === 'month')?.value) - 1;
-  const day   = Number(pstParts.find(p => p.type === 'day')?.value);
-  const totalUtc = hourPST * 60 + minutePST - pstOffset;
-  const utcDayOff = Math.floor(totalUtc / 1440);
-  const utcMin = ((totalUtc % 1440) + 1440) % 1440;
-  const utcDate = new Date(Date.UTC(year, month, day + utcDayOff, Math.floor(utcMin / 60), utcMin % 60));
-  const label = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short',
-  }).format(utcDate);
-  return label
-    .replace(/\bEDT\b/, 'EST')
-    .replace(/\bCDT\b/, 'CST')
-    .replace(/\bMDT\b/, 'MST')
-    .replace(/\bPDT\b/, 'PST')
-    .replace(/\bAKDT\b/, 'AKST')
-    .replace(/\bHDT\b/, 'HST');
-}
-
-function getStoreClosePSTMinutes(tz: string): number {
-  const pstOffset = getPSTUtcOffsetMinutes();
-  const tzParts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(new Date());
-  const offsetStr = tzParts.find(p => p.type === 'timeZoneName')?.value || 'GMT-8';
-  const match = offsetStr.match(/GMT([+-])(\d+)(?::(\d+))?/);
-  const sign = match ? (match[1] === '+' ? 1 : -1) : -1;
-  const userOffset = match ? sign * (parseInt(match[2], 10) * 60 + (match[3] ? parseInt(match[3], 10) : 0)) : -480;
-  return (22 * 60 + 30) - userOffset + pstOffset;
-}
-
-function generatePickupTimeOptions(earliestMinutes: number, tz: string) {
-  const storeClose = getStoreClosePSTMinutes(tz);
+function generatePickupTimeOptions(tz: string) {
   const options: { label: string; value: string }[] = [];
-  for (let m = earliestMinutes; m <= storeClose; m += 15) {
-    const label = pstTimeToLocalLabel(Math.floor(m / 60), m % 60, tz);
+  for (let m = 11 * 60; m <= 23 * 60; m += 15) {
+    const label = localTimeToLabel(m, tz);
     options.push({ label, value: label });
   }
   return options;
@@ -178,9 +144,8 @@ async function showPickupTimeSelect(interaction: any, state: any) {
     else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   }
   const tz = state.info?.timezone || 'America/Los_Angeles';
-  const earliestMinutes = 11 * 60; // manual orders: 11:00 AM
-  const options = generatePickupTimeOptions(earliestMinutes, tz);
-  const earliestStr = options[0]?.label ?? pstTimeToLocalLabel(11, 0, tz);
+  const options = generatePickupTimeOptions(tz);
+  const earliestStr = options[0]?.label ?? localTimeToLabel(11 * 60, tz);
   const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
   if (options.length <= 25) {
     rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -656,6 +621,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const file = new AttachmentBuilder(Buffer.from(formatted, 'utf8'), { name: 'manual_order.txt' });
         orderState.delete(stateKey);
         await interaction.editReply({ content: '✅ Manual order printed.', embeds: [], components: [], files: [file] });
+        try {
+          await interaction.user.send({ content: `📋 **Your Manual Order**\n\`\`\`\n${formatted}\n\`\`\`` });
+        } catch {
+          // DMs disabled — silently skip
+        }
       }
     }
 
