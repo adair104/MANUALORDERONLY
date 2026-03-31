@@ -477,14 +477,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // All subsequent interactions require state
     const stateKey = `${interaction.user.id}:${interaction.guildId}`;
     const state = orderState.get(stateKey);
+
+    // Defer immediately for all buttons/selects except those that must show a modal
     if (interaction.isButton() || interaction.isStringSelectMenu()) {
-      console.log('[DEBUG] Looking up state key:', stateKey, '| found:', !!state, '| all keys:', [...orderState.keys()]);
+      const willShowModal =
+        interaction.customId === 'same_name_yes' ||
+        (interaction.customId === 'premium_select' && state?.individualNames);
+      if (!willShowModal && !interaction.deferred && !interaction.replied) {
+        await interaction.deferUpdate();
+      }
     }
+
     if (!state && (interaction.isButton() || interaction.isStringSelectMenu())) {
-      const msg = { content: '❌ Session expired. Please use `/manualorder` again.', components: [], embeds: [] };
-      if (interaction.deferred || interaction.replied) return await interaction.editReply(msg);
-      await interaction.deferUpdate();
-      return await interaction.editReply(msg);
+      return await interaction.editReply({ content: '❌ Session expired. Please use `/manualorder` again.', components: [], embeds: [] });
     }
     if (state) state.lastUpdated = Date.now();
 
@@ -493,7 +498,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         state.info.location = interaction.values[0].replace(/^\d+:/, '');
         await showPickupTimeSelect(interaction, state);
       } else if (interaction.customId === 'pickup_time_select' || interaction.customId.startsWith('pickup_time_select_')) {
-        await interaction.deferUpdate();
         state.info.time = interaction.values[0];
         await showSameNameQuestion(interaction);
       } else if (interaction.customId === 'entree_select') {
@@ -623,7 +627,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         state.individualNames = true;
         await showEntreeSelect(interaction, state);
       } else if (interaction.customId === 'confirm_manual') {
-        await interaction.deferUpdate();
         const formatted = formatOrder('__manual__', state.info, state.orders);
         const file = new AttachmentBuilder(Buffer.from(formatted, 'utf8'), { name: 'manual_order.txt' });
         orderState.delete(stateKey);
