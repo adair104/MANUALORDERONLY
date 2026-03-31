@@ -24,6 +24,14 @@ dotenv.config();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const orderState = new Map<string, any>();
 
+// Clean up sessions idle for more than 1 hour
+setInterval(() => {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [key, state] of orderState) {
+    if (state.lastUpdated < cutoff) orderState.delete(key);
+  }
+}, 30 * 60 * 1000);
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function sanitizeInput(input: string, maxLength = 200): string {
@@ -175,8 +183,7 @@ async function showSameNameQuestion(interaction: any) {
     new ButtonBuilder().setCustomId('same_name_yes').setLabel('👤 Yes, same name for all').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('same_name_no').setLabel('📝 No, ask per entree').setStyle(ButtonStyle.Secondary),
   );
-  const method = interaction.replied || interaction.deferred ? 'editReply' : 'update';
-  await interaction[method]({ content: '👤 **Same name for all entrees?**', components: [row], embeds: [] });
+  await respond(interaction, { content: '👤 **Same name for all entrees?**', components: [row], embeds: [] });
 }
 
 async function showEntreeSelect(interaction: any, state: any) {
@@ -193,8 +200,7 @@ async function showEntreeSelect(interaction: any, state: any) {
       new ButtonBuilder().setCustomId('back_to_review').setLabel('Back to Review').setStyle(ButtonStyle.Danger)
     ));
   }
-  const method = interaction.replied || interaction.deferred ? 'editReply' : (interaction.isButton() || interaction.isStringSelectMenu() ? 'update' : 'reply');
-  await interaction[method]({ content: 'Choose your entree:', components, embeds: [], flags: MessageFlags.Ephemeral });
+  await respond(interaction, { content: 'Choose your entree:', components, embeds: [] });
 }
 
 async function showProteinSelect(interaction: any, state: any) {
@@ -335,8 +341,7 @@ async function showCart(interaction: any, state: any) {
     new ButtonBuilder().setCustomId('confirm_manual').setLabel('✅ Confirm & Print').setStyle(ButtonStyle.Success),
   );
 
-  const method = interaction.replied || interaction.deferred ? 'editReply' : 'update';
-  await interaction[method]({ embeds: [embed], components: [new ActionRowBuilder<ButtonBuilder>().addComponents(rowBtns)], content: '', flags: MessageFlags.Ephemeral });
+  await respond(interaction, { embeds: [embed], components: [new ActionRowBuilder<ButtonBuilder>().addComponents(rowBtns)], content: '' });
 }
 
 // ── Main interaction handler ────────────────────────────────────────────────
@@ -399,7 +404,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       };
 
       const fetchMapTiler = async (): Promise<any[]> => {
-        const res = await fetch(`https://api.maptiler.com/geocoding/Chipotle%20Mexican%20Grill.json?proximity=${lng},${lat}&limit=10&types=poi&key=MDqZ9Tw4PuuEnadIszzz`);
+        const res = await fetch(`https://api.maptiler.com/geocoding/Chipotle%20Mexican%20Grill.json?proximity=${lng},${lat}&limit=10&types=poi&key=${process.env.MAPTILER_KEY}`);
         if (!res.ok) throw new Error('MapTiler error');
         const data: any = await res.json();
         return (data.features || []).map((f: any) => {
@@ -476,7 +481,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       console.log('[DEBUG] Looking up state key:', stateKey, '| found:', !!state, '| all keys:', [...orderState.keys()]);
     }
     if (!state && (interaction.isButton() || interaction.isStringSelectMenu())) {
-      return await interaction.reply({ content: '❌ Session expired. Please use `/manualorder` again.', flags: MessageFlags.Ephemeral });
+      const msg = { content: '❌ Session expired. Please use `/manualorder` again.', components: [], embeds: [] };
+      if (interaction.deferred || interaction.replied) return await interaction.editReply(msg);
+      await interaction.deferUpdate();
+      return await interaction.editReply(msg);
     }
     if (state) state.lastUpdated = Date.now();
 
@@ -530,8 +538,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } else {
           await showCart(interaction, state);
         }
-      } else if (interaction.customId.startsWith('edit_select_')) {
-        const idx = parseInt(interaction.customId.replace('edit_select_', ''), 10);
+      } else if (interaction.customId === 'edit_select') {
+        const idx = parseInt(interaction.values[0], 10);
         state.editingIndex = idx;
         state.orders.splice(idx, 1);
         state.currentOrder = { type: '', proteins: [], rice: { type: 'None' }, beans: { type: 'None' }, toppings: [], selectedToppings: [], premiums: [] };
@@ -577,12 +585,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           state.orders.map((o: any, i: number) => ({ label: `${i + 1}. ${o.type}${o.entreeName ? ` — ${o.entreeName}` : ''}`, value: String(i) }))
         );
         await respond(interaction, { content: 'Select an item to edit:', components: [row], embeds: [] });
-      } else if (interaction.customId.startsWith('edit_select_')) {
-        const idx = parseInt(interaction.customId.replace('edit_select_', ''), 10);
-        state.editingIndex = idx;
-        state.orders.splice(idx, 1);
-        state.currentOrder = { type: '', proteins: [], rice: { type: 'None' }, beans: { type: 'None' }, toppings: [], selectedToppings: [], premiums: [] };
-        await showEntreeSelect(interaction, state);
       } else if (interaction.customId === 'remove_item_start') {
         if (state.orders.length === 0) return await respond(interaction, { content: '❌ No items to remove.', components: [], embeds: [] });
         const row = makeSelect('remove_select', 'Select item to remove',
