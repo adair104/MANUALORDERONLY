@@ -1,0 +1,14 @@
+{
+  "name": "manualorder-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx server.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.25.1",
+    "dotenv": "^17.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2"
+  }
+}
